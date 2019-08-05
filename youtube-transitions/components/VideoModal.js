@@ -13,7 +13,7 @@ import { PanGestureHandler, State } from 'react-native-gesture-handler';
 
 import { type Video as VideoModel } from './videos';
 import VideoContent from './VideoContent';
-import PlayerControls from './PlayerControls';
+import PlayerControls, { PLACEHOLDER_WIDTH } from './PlayerControls';
 
 const {
   add,
@@ -40,6 +40,10 @@ const {
 
 const { width, height } = Dimensions.get('window');
 const { statusBarHeight } = Constants;
+const midBound = height - 3 * 64;
+const minHeight = 64;
+const upperBound = midBound + minHeight;
+const AnimatedVideo = Animated.createAnimatedComponent(Video);
 const shadow = {
   alignItems: 'center',
   elevation: 1,
@@ -93,13 +97,17 @@ export default class VideoModal extends React.PureComponent<VideoModalProps> {
 
   velocityY = new Value(0);
 
+  offsetY = new Value(0);
+
   gestureState = new Value(State.UNDETERMINED);
 
   translateY: Value;
 
   constructor(props: VideoModalProps) {
     super(props);
-    const { translationY, velocityY, gestureState: state } = this;
+    const {
+      translationY, velocityY, offsetY, gestureState: state,
+    } = this;
     this.onGestureEvent = event([
       {
         nativeEvent: {
@@ -116,22 +124,66 @@ export default class VideoModal extends React.PureComponent<VideoModalProps> {
     const snapPoint = cond(
       lessThan(finalTranslateY, translationThreshold),
       0,
-      height,
+      upperBound,
     );
     this.translateY = cond(
       eq(state, State.END),
       [
-        set(translationY, runSpring(clockY, translationY, snapPoint)),
-        // set(offsetY, translationY),
+        set(translationY, runSpring(clockY, add(offsetY, translationY), snapPoint)),
+        set(offsetY, translationY),
         translationY,
       ],
-      translationY,
+      [
+        cond(eq(state, State.BEGAN), stopClock(clockY)),
+        add(offsetY, translationY),
+      ],
     );
   }
 
   render() {
-    const { onGestureEvent, translateY } = this;
+    const { onGestureEvent, translateY: tY } = this;
     const { video } = this.props;
+    const translateY = interpolate(
+      tY, {
+        inputRange: [0, midBound],
+        outputRange: [0, midBound],
+      },
+    );
+    const videoContainerWidth = interpolate(tY, {
+      inputRange: [0, midBound],
+      outputRange: [width, width - 16],
+      extrapolate: Extrapolate.CLAMP,
+    });
+    const videoWidth = interpolate(translateY, {
+      inputRange: [0, midBound, upperBound],
+      outputRange: [width, width - 16, PLACEHOLDER_WIDTH],
+      extrapolate: Extrapolate.CLAMP,
+    });
+    const videoHeight = interpolate(tY, {
+      inputRange: [0, midBound],
+      outputRange: [width / 1.78, minHeight],
+      extrapolate: Extrapolate.CLAMP,
+    });
+    const contentOpacity = interpolate(tY, {
+      inputRange: [0, upperBound / 1.2],
+      outputRange: [1, 0],
+      extrapolate: Extrapolate.CLAMP,
+    });
+    const playerControlOpacity = interpolate(tY, {
+      inputRange: [midBound, upperBound],
+      outputRange: [0, 1],
+      extrapolate: Extrapolate.CLAMP,
+    });
+    const contentWidth = interpolate(tY, {
+      inputRange: [0, midBound],
+      outputRange: [width, width - 16],
+      extrapolate: Extrapolate.CLAMP,
+    });
+    const contentHeight = interpolate(tY, {
+      inputRange: [0, midBound],
+      outputRange: [height, 0],
+      extrapolate: Extrapolate.CLAMP,
+    });
     return (
       <>
         <View
@@ -150,22 +202,22 @@ export default class VideoModal extends React.PureComponent<VideoModalProps> {
               ...shadow,
             }}
           >
-            <View style={{ backgroundColor: 'white', width }}>
-              <View style={{ ...StyleSheet.absoluteFillObject }}>
+            <Animated.View style={{ backgroundColor: 'white', width: videoContainerWidth }}>
+              <Animated.View style={{ ...StyleSheet.absoluteFillObject, opacity: playerControlOpacity }}>
                 <PlayerControls title={video.title} onPress={() => true} />
-              </View>
-              <Video
+              </Animated.View>
+              <AnimatedVideo
                 source={video.video}
-                style={{ width, height: width / 1.78 }}
+                style={{ width: videoWidth, height: videoHeight }}
                 resizeMode={Video.RESIZE_MODE_COVER}
                 shouldPlay
               />
-            </View>
-            <View style={{ backgroundColor: 'white', width, height }}>
-              <View>
+            </Animated.View>
+            <Animated.View style={{ backgroundColor: 'white', width: contentWidth, height: contentHeight }}>
+              <Animated.View style={{ opacity: contentOpacity }}>
                 <VideoContent {...{ video }} />
-              </View>
-            </View>
+              </Animated.View>
+            </Animated.View>
           </Animated.View>
         </PanGestureHandler>
       </>
